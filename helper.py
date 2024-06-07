@@ -32,44 +32,6 @@ def load_data(_log_file):
         return json.load(_file)
 
 
-def _MaliciousDataSetPreparation():
-    """
-    ***Not in use***
-    This function download the original mgm files and convert it to the tool format
-    """
-    malicious_data = f"https://api.github.com/repos/openappsec/mgm-web-attack-payloads/contents/nuclei/payloads"
-    test_names = requests.get(malicious_data)
-
-    for test_name in test_names.json():
-        files = requests.get(test_name['url'])
-        true_positives_download_url = [x['download_url'] for x in files.json() if x['name'] == 'true-positives.txt'][0]
-        true_positives_data = requests.get(true_positives_download_url).text.splitlines()
-
-        test_set_content = [{
-            "method": "GET",
-            "url": f"/?p={urllib.parse.quote(line).replace('%25', '%')}",
-            "headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:105.0) Gecko/20100101 Firefox/105.0",
-                "Connection": "close"
-            },
-            "data": "",
-        } for line in true_positives_data]
-
-        test_set_content.extend([{
-            "method": "POST",
-            "url": "/",
-            "headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:105.0) Gecko/20100101 Firefox/105.0",
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Connection": "close"
-            },
-            "data": f"p={urllib.parse.quote(line).replace('%25', '%')}",
-        } for line in true_positives_data])
-        MALICIOUS_PATH.mkdir(exist_ok=True)
-        with open((MALICIOUS_PATH / test_name['name']).with_suffix('.json'), 'w') as _file:
-            json.dump(test_set_content, _file)
-
-
 def zip_extract(file_to_extract):
     """
     Extract zip files
@@ -112,30 +74,27 @@ def prepare_data():
         log.info("Legitimate Data Set Preparation Completed.")
 
 
-def sendRequest(_method, _url, _headers=None, _data=None, _timeout=0.5) -> [int, bool]:
+def sendRequest(_method, _url, _headers=None, _data=None, _timeout=0.5) -> [int, dict, bool]:
     """
-    Send individual request, returns the status code and if the request was blocked
+    Send individual request, returns the status code, response headers, and if the request was blocked.
     """
-
-    # Delete host header in order for requests to generate it automatically
     if _headers and "Host" in _headers:
         _headers.pop("Host")
 
     attempts = 0
-
     while attempts < 3:
         try:
-            res = requests.request(_method, url=_url, headers=_headers, data=_data, timeout=_timeout)
-            return [
-                res.status_code,
-                "The requested URL was rejected. Please consult with your administrator." in res.text
-                or res.status_code == 403
-            ]
-
+            res = requests.request(_method, _url, headers=_headers, data=_data, timeout=_timeout)
+            # Check if the response indicates that the request was blocked
+            blocked = "The requested URL was rejected. Please consult with your administrator." in res.text or res.status_code == 403
+            return [res.status_code, res.headers, blocked]
         except:
             attempts += 1
             time.sleep(0.1 * attempts)
-    return [0, False]
+
+    # If the request fails completely, return a response indicating failure.
+    return [0, {}, False]
+
 
 
 def isTableExists(_table_name):

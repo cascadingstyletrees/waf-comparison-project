@@ -51,11 +51,10 @@ class Wafs:
 
     def check_connection(self):
         checkFailed = False
-
-        # For each WAF, send a test GET request and log if it was successful or not.
         log.debug("Initiating health check to confirm proper connectivity configurations.")
         for _waf in self.wafs:
-            resStatusCode, isBlocked = sendRequest(
+            # Unpacking the new three-element list returned by sendRequest
+            resStatusCode, isBlocked, resHeaders = sendRequest(
                 'GET',
                 self.get_url_by_waf_name(_waf),
                 {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:105.0) Gecko/20100101 Firefox/105.0"}
@@ -68,10 +67,10 @@ class Wafs:
                 checkFailed = True
 
         # For each WAF, send a potentially harmful GET request and check if it gets blocked.
-        log.debug("Initiating WAF functionality verification to ensure that the WAF is in prevention mode and is "
-                  "capable of blocking malicious requests.")
+        log.debug("Initiating WAF functionality verification to ensure that the WAF is in prevention mode and is capable of blocking malicious requests.")
         for _waf in self.wafs:
-            resStatusCode, isBlocked = sendRequest('GET', self.get_url_by_waf_name(_waf) + "/<script>alert(1)</script>")
+            # Again, unpack the response to include headers
+            resStatusCode, isBlocked, resHeaders = sendRequest('GET', self.get_url_by_waf_name(_waf) + "/<script>alert(1)</script>")
             if isBlocked:
                 log.info(f"WAF functionality check passed - WAF: {_waf:50}")
             else:
@@ -85,10 +84,8 @@ class Wafs:
         else:
             log.debug("All tests have been successfully completed.")
 
+    
     def _send_payloads(self, _data, _url, _test_name):
-        """
-        Private function to send a set of payloads to a specific WAF
-        """
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as _executor:
             res = list(
                 tqdm(
@@ -105,24 +102,31 @@ class Wafs:
                 )
             )
 
-        # Create a DataFrame
+        # Creating a DataFrame from the data
         dff = pd.DataFrame(_data)
 
+        # Unpacking response tuple and adding them as separate columns in the DataFrame
+        dff[['response_status_code', 'response_headers', 'isBlocked']] = pd.DataFrame(res, index=dff.index)
+
+        # JSON dumping the headers for a consistent storage format
+        dff['response_headers'] = dff['response_headers'].apply(lambda headers: json.dumps(dict(headers)))
+
+        # Additional DataFrame modifications
         dff['machineName'] = socket.gethostname()
         dff['DestinationURL'] = _url
         dff['WAF_Name'] = self.get_waf_name_by_url(_url)
         dff['DateTime'] = datetime.datetime.now()
         dff['TestName'] = _test_name.stem
-        dff['DataSetType'] = _test_name.parent.stem
-        dff['headers'] = dff['headers'].apply(json.dumps)
-        dff[['response_status_code', 'isBlocked']] = res
+        dff['dataset'] = _test_name.parent.stem
+        dff['headers'] = dff['headers'].apply(json.dumps)  # Ensure headers are stored as a JSON string
 
-        # Replacing null bytes with Unicode Replacement Character in order to save letter in the Database
+        # Clean up problematic characters in URL and data fields
         dff['url'] = dff['url'].str.replace("\x00", "\uFFFD")
         dff['data'] = dff['data'].str.replace("\x00", "\uFFFD")
 
         # Upload the DataFrame to the Database
         dff.to_sql('waf_comparison', engine, if_exists='append', index=False)
+
 
     def send_payloads(self):
         """
@@ -133,7 +137,7 @@ class Wafs:
             return
 
         # Delete old results:
-        dropTableIfExists('waf_comparison')
+        
 
         for test_name in tqdm(list(DATA_PATH.rglob('*json')), desc="Sending requests", position=1, leave=False):
 
@@ -147,11 +151,11 @@ def main():
     Main function to execute the WAF testing process
     """
     wafs = Wafs()
+    dropTableIfExists('waf_comparison')
     wafs.check_connection()
     check_engine_connection()
     prepare_data()
     wafs.send_payloads()
-    analyze_results()
 
 
 if __name__ == '__main__':
