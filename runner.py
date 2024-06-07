@@ -137,7 +137,7 @@ class Wafs:
             return
 
         # Delete old results:
-        dropTableIfExists('waf_comparison')
+        
 
         for test_name in tqdm(list(DATA_PATH.rglob('*json')), desc="Sending requests", position=1, leave=False):
 
@@ -151,6 +151,7 @@ def main():
     Main function to execute the WAF testing process
     """
     wafs = Wafs()
+    dropTableIfExists('waf_comparison')
     wafs.check_connection()
     check_engine_connection()
     prepare_data()
