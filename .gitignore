@@ -7,3 +7,5 @@ Data/Legitimate.zip
 Data/Malicious.zip
 config.py
 waf_comparison.db
+Data/legitimate.zip
+Data/malicious.zip
